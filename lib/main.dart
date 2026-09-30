@@ -94,25 +94,28 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final formattedDate = DateFormat('yyyy-M-d').format(date);
     
-    // Используем заголовки, имитирующие мобильный браузер
-    final headers = {
-      'User-Agent': 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-      'Accept': 'application/json',
-    };
-
-    final primaryUrl = Uri.parse('https://nbrb.by/api/exrates/rates?ondate=$formattedDate&periodicity=0');
-    final secondaryUrl = Uri.parse('https://www.nbrb.by/api/exrates/rates?periodicity=0');
+    // Прямой официальный API URL Нацбанка РБ без заголовков браузера
+    final Uri primaryUrl = Uri.parse('https://nbrb.by/api/exrates/rates?ondate=$formattedDate&periodicity=0');
+    final Uri fallbackUrl = Uri.parse('https://nbrb.by/api/exrates/rates?periodicity=0');
 
     try {
-      // 1. Первая попытка — по выбранной дате с увеличенным таймаутом (20 секунд)
-      var response = await http.get(primaryUrl, headers: headers).timeout(const Duration(seconds: 20));
+      final client = http.Client();
+      
+      // Выполняем GET-запрос без лишних заголовков
+      var response = await client.get(
+        primaryUrl, 
+        headers: {'Accept': 'application/json'}
+      ).timeout(const Duration(seconds: 15));
 
-      if (response.statusCode != 200) {
-        // 2. Вторая попытка — базовый URL без даты
-        response = await http.get(secondaryUrl, headers: headers).timeout(const Duration(seconds: 20));
+      if (response.statusCode != 200 || !response.body.trim().startsWith('[')) {
+        // Пробуем запасной эндпоинт на сегодня
+        response = await client.get(
+          fallbackUrl, 
+          headers: {'Accept': 'application/json'}
+        ).timeout(const Duration(seconds: 15));
       }
 
-      if (response.statusCode == 200) {
+      if (response.statusCode == 200 && response.body.trim().startsWith('[')) {
         final List<dynamic> data = json.decode(response.body);
         final rates = data.map((item) => Rate.fromJson(item)).toList();
 
@@ -122,18 +125,19 @@ class _HomeScreenState extends State<HomeScreen> {
         });
       } else {
         setState(() {
-          _errorMessage = 'Сервер вернул код: ${response.statusCode}';
+          _errorMessage = 'Сервер НБРБ вернул нестандартный ответ (${response.statusCode}). Попробуйте позже.';
           _isLoading = false;
         });
       }
+      client.close();
     } on TimeoutException {
       setState(() {
-        _errorMessage = 'Превышено время ожидания ответа от НБРБ. Проверьте мобильное подключение или переключитесь на Wi-Fi.';
+        _errorMessage = 'Превышено время ожидания ответа НБРБ. Нажмите «Повторить».';
         _isLoading = false;
       });
     } catch (e) {
       setState(() {
-        _errorMessage = 'Ошибка сети: $e';
+        _errorMessage = 'Ошибка загрузки данных: $e';
         _isLoading = false;
       });
     }
@@ -567,11 +571,12 @@ class _RateDetailScreenState extends State<RateDetailScreen> {
         'https://nbrb.by/api/exrates/rates/dynamics/${widget.rate.id}?startDate=$startStr&endDate=$endStr');
 
     try {
-      final response = await http.get(url, headers: {
-        'User-Agent': 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36',
-      }).timeout(const Duration(seconds: 15));
+      final response = await http.get(
+        url, 
+        headers: {'Accept': 'application/json'}
+      ).timeout(const Duration(seconds: 15));
 
-      if (response.statusCode == 200) {
+      if (response.statusCode == 200 && response.body.trim().startsWith('[')) {
         final List<dynamic> data = json.decode(response.body);
         List<FlSpot> spots = [];
 
