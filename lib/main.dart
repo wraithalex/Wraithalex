@@ -54,14 +54,14 @@ class Rate {
   factory Rate.fromJson(Map<String, dynamic> json) {
     return Rate(
       id: (json['Cur_ID'] ?? 0) as int,
-      name: (json['Cur_Name'] ?? json['name'] ?? 'Валюта') as String,
-      officialRate: ((json['Cur_OfficialRate'] ?? json['rate'] ?? 0) as num).toDouble(),
-      scale: (json['Cur_Scale'] ?? json['scale'] ?? 1) as int,
-      code: (json['Cur_Abbreviation'] ?? json['code'] ?? '---') as String,
+      name: (json['Cur_Name'] ?? json['Cur_Name_RU'] ?? 'Валюта') as String,
+      officialRate: ((json['Cur_OfficialRate'] ?? 0) as num).toDouble(),
+      scale: (json['Cur_Scale'] ?? 1) as int,
+      code: (json['Cur_Abbreviation'] ?? '---') as String,
     );
   }
 
-  double get unitRate => officialRate / scale;
+  double get unitRate => scale > 0 ? officialRate / scale : officialRate;
 }
 
 class HomeScreen extends StatefulWidget {
@@ -92,51 +92,52 @@ class _HomeScreenState extends State<HomeScreen> {
       _errorMessage = '';
     });
 
-    final formattedDate = DateFormat('yyyy-M-d').format(date);
+    // Формат с ведущими нулями: YYYY-MM-DD
+    final formattedDate = DateFormat('yyyy-MM-dd').format(date);
     
-    // Прямой запрос к API Нацбанка
-    final primaryUrl = Uri.parse('https://nbrb.by/api/exrates/rates?ondate=$formattedDate&periodicity=0');
-    final secondaryUrl = Uri.parse('https://nbrb.by/api/exrates/rates?periodicity=0');
+    final Uri urlWithDate = Uri.parse('https://www.nbrb.by/api/exrates/rates?ondate=$formattedDate&periodicity=0');
+    final Uri urlToday = Uri.parse('https://www.nbrb.by/api/exrates/rates?periodicity=0');
 
     try {
       final client = http.Client();
-      var response = await client.get(primaryUrl).timeout(const Duration(seconds: 15));
+      
+      // 1. Попытка запросить курсы на выбранную дату
+      var response = await client.get(urlWithDate).timeout(const Duration(seconds: 15));
 
-      if (response.statusCode != 200) {
-        response = await client.get(secondaryUrl).timeout(const Duration(seconds: 15));
+      if (response.statusCode != 200 || response.body.trim() == '[]' || response.body.trim().isEmpty) {
+        // 2. Если на выбранную дату пусто, запрашиваем актуальные на сегодня
+        response = await client.get(urlToday).timeout(const Duration(seconds: 15));
       }
 
-      if (response.statusCode == 200) {
-        final String rawBody = response.body.trim();
+      if (response.statusCode == 200 && response.body.trim().isNotEmpty) {
+        final dynamic decoded = json.decode(response.body);
         List<dynamic> dataList = [];
 
-        // Гибкая десериализация JSON (если массив или если объект)
-        if (rawBody.startsWith('[')) {
-          dataList = json.decode(rawBody);
-        } else if (rawBody.startsWith('{')) {
-          final decoded = json.decode(rawBody);
-          if (decoded is Map && decoded.containsKey('rates')) {
-            dataList = decoded['rates'];
-          } else if (decoded is Map) {
-            dataList = [decoded];
-          }
+        if (decoded is List) {
+          dataList = decoded;
+        } else if (decoded is Map) {
+          dataList = [decoded];
         }
 
         if (dataList.isNotEmpty) {
-          final rates = dataList.map((item) => Rate.fromJson(item)).toList();
+          final rates = dataList
+              .map((item) => Rate.fromJson(item))
+              .where((r) => r.officialRate > 0)
+              .toList();
+
           setState(() {
             _allRates = rates;
             _isLoading = false;
           });
         } else {
           setState(() {
-            _errorMessage = 'Пустой ответ от сервера НБРБ.';
+            _errorMessage = 'На выбранную дату нет официальных курсов.';
             _isLoading = false;
           });
         }
       } else {
         setState(() {
-          _errorMessage = 'Код ответа сервера: ${response.statusCode}';
+          _errorMessage = 'Сервер НБРБ вернул статус: ${response.statusCode}';
           _isLoading = false;
         });
       }
@@ -148,7 +149,7 @@ class _HomeScreenState extends State<HomeScreen> {
       });
     } catch (e) {
       setState(() {
-        _errorMessage = 'Ошибка обработки данных: $e';
+        _errorMessage = 'Ошибка подключения: $e';
         _isLoading = false;
       });
     }
@@ -575,24 +576,19 @@ class _RateDetailScreenState extends State<RateDetailScreen> {
     final endDate = DateTime.now();
     final startDate = endDate.subtract(const Duration(days: 30));
 
-    final startStr = DateFormat('yyyy-M-d').format(startDate);
-    final endStr = DateFormat('yyyy-M-d').format(endDate);
+    final startStr = DateFormat('yyyy-MM-dd').format(startDate);
+    final endStr = DateFormat('yyyy-MM-dd').format(endDate);
 
     final url = Uri.parse(
-        'https://nbrb.by/api/exrates/rates/dynamics/${widget.rate.id}?startDate=$startStr&endDate=$endStr');
+        'https://www.nbrb.by/api/exrates/rates/dynamics/${widget.rate.id}?startDate=$startStr&endDate=$endStr');
 
     try {
       final response = await http.get(url).timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
-        final String rawBody = response.body.trim();
-        List<dynamic> dataList = [];
-
-        if (rawBody.startsWith('[')) {
-          dataList = json.decode(rawBody);
-        }
-
+        final List<dynamic> dataList = json.decode(response.body);
         List<FlSpot> spots = [];
+
         for (int i = 0; i < dataList.length; i++) {
           final rateVal = ((dataList[i]['Cur_OfficialRate'] ?? 0) as num).toDouble();
           spots.add(FlSpot(i.toDouble(), rateVal));
