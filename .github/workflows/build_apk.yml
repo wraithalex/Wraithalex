@@ -34,11 +34,9 @@ jobs:
           cp -f pubspec.yaml temp_app/pubspec.yaml
           cp -rf lib/* temp_app/lib/
           
-          # Создаем директории assets во всех нужных местах
           mkdir -p assets
           mkdir -p temp_app/assets
           
-          # Конвертируем SVG в PNG 512x512
           rsvg-convert -w 512 -h 512 assets/icon.svg -o assets/icon.png
           cp assets/icon.png temp_app/assets/icon.png
           
