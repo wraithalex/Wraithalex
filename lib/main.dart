@@ -1,4 +1,4 @@
-import 'dart:convert';
+import 'dart0:convert';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -9,14 +9,56 @@ void main() {
   runApp(const NbrbRatesApp());
 }
 
-class NbrbRatesApp extends StatelessWidget {
+class NbrbRatesApp extends StatefulWidget {
   const NbrbRatesApp({super.key});
+
+  @override
+  State<NbrbRatesApp> createState() => _NbrbRatesAppState();
+}
+
+class _NbrbRatesAppState extends State<NbrbRatesApp> {
+  ThemeMode _themeMode = ThemeMode.system;
+
+  void _toggleTheme() {
+    setState(() {
+      if (_themeMode == ThemeMode.system) {
+        _themeMode = ThemeMode.light;
+      } else if (_themeMode == ThemeMode.light) {
+        _themeMode = ThemeMode.dark;
+      } else {
+        _themeMode = ThemeMode.system;
+      }
+    });
+  }
+
+  IconData _getThemeIcon() {
+    switch (_themeMode) {
+      case ThemeMode.light:
+        return Icons.light_mode;
+      case ThemeMode.dark:
+        return Icons.dark_mode;
+      case ThemeMode.system:
+        return Icons.brightness_auto;
+    }
+  }
+
+  String _getThemeTooltip() {
+    switch (_themeMode) {
+      case ThemeMode.light:
+        return 'Светлая тема';
+      case ThemeMode.dark:
+        return 'Тёмная тема';
+      case ThemeMode.system:
+        return 'Системная тема';
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Курсы НБРБ',
       debugShowCheckedModeBanner: false,
+      themeMode: _themeMode,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
           seedColor: Colors.deepPurple,
@@ -31,7 +73,11 @@ class NbrbRatesApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      home: const HomeScreen(),
+      home: HomeScreen(
+        onToggleTheme: _toggleTheme,
+        themeIcon: _getThemeIcon(),
+        themeTooltip: _getThemeTooltip(),
+      ),
     );
   }
 }
@@ -65,7 +111,16 @@ class Rate {
 }
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final VoidCallback onToggleTheme;
+  final IconData themeIcon;
+  final String themeTooltip;
+
+  const HomeScreen({
+    super.key,
+    required this.onToggleTheme,
+    required this.themeIcon,
+    required this.themeTooltip,
+  });
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -92,7 +147,6 @@ class _HomeScreenState extends State<HomeScreen> {
       _errorMessage = '';
     });
 
-    // Формат с ведущими нулями: YYYY-MM-DD
     final formattedDate = DateFormat('yyyy-MM-dd').format(date);
     
     final Uri urlWithDate = Uri.parse('https://www.nbrb.by/api/exrates/rates?ondate=$formattedDate&periodicity=0');
@@ -100,12 +154,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
     try {
       final client = http.Client();
-      
-      // 1. Попытка запросить курсы на выбранную дату
       var response = await client.get(urlWithDate).timeout(const Duration(seconds: 15));
 
       if (response.statusCode != 200 || response.body.trim() == '[]' || response.body.trim().isEmpty) {
-        // 2. Если на выбранную дату пусто, запрашиваем актуальные на сегодня
         response = await client.get(urlToday).timeout(const Duration(seconds: 15));
       }
 
@@ -178,6 +229,11 @@ class _HomeScreenState extends State<HomeScreen> {
         centerTitle: true,
         actions: [
           IconButton(
+            icon: Icon(widget.themeIcon),
+            onPressed: widget.onToggleTheme,
+            tooltip: widget.themeTooltip,
+          ),
+          IconButton(
             icon: const Icon(Icons.calendar_month),
             onPressed: () => _selectDate(context),
             tooltip: 'Выбрать дату',
@@ -217,17 +273,25 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                 )
-              : _currentIndex == 0
-                  ? RatesListTab(
-                      allRates: _allRates,
-                      favoriteCodes: _favoriteCodes,
-                      selectedDate: _selectedDate,
-                      onDateSelect: () => _selectDate(context),
-                    )
-                  : ConverterTab(
-                      allRates: _allRates,
-                      favoriteCodes: _favoriteCodes,
-                    ),
+              : AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 300),
+                  transitionBuilder: (Widget child, Animation<double> animation) {
+                    return FadeTransition(opacity: animation, child: child);
+                  },
+                  child: _currentIndex == 0
+                      ? RatesListTab(
+                          key: const ValueKey(0),
+                          allRates: _allRates,
+                          favoriteCodes: _favoriteCodes,
+                          selectedDate: _selectedDate,
+                          onDateSelect: () => _selectDate(context),
+                        )
+                      : ConverterTab(
+                          key: const ValueKey(1),
+                          allRates: _allRates,
+                          favoriteCodes: _favoriteCodes,
+                        ),
+                ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
         onDestinationSelected: (index) {
@@ -290,6 +354,24 @@ class _RatesListTabState extends State<RatesListTab> {
         }).toList();
       }
     });
+  }
+
+  void _openDetailScreen(Rate rate) {
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) => RateDetailScreen(rate: rate),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          const begin = Offset(1.0, 0.0);
+          const end = Offset.zero;
+          const curve = Curves.easeInOut;
+          var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
+          return SlideTransition(
+            position: animation.drive(tween),
+            child: child,
+          );
+        },
+      ),
+    );
   }
 
   @override
@@ -388,14 +470,7 @@ class _RatesListTabState extends State<RatesListTab> {
             fontSize: 16,
           ),
         ),
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => RateDetailScreen(rate: rate),
-            ),
-          );
-        },
+        onTap: () => _openDetailScreen(rate),
       ),
     );
   }
