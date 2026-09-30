@@ -27,11 +27,11 @@ jobs:
 
       - name: Prepare Flutter Project
         run: |
-          mkdir temp_app
+          flutter create temp_app --project-name=nbrb_rates --platforms=android --org=com.example.nbrb
+          cp -f pubspec.yaml temp_app/pubspec.yaml
+          cp -rf lib/* temp_app/lib/
+          if [ -d "android" ]; then cp -rf android/* temp_app/android/; fi
           cd temp_app
-          flutter create . --platforms=android --org=com.example.nbrb
-          cp -f ../pubspec.yaml ./pubspec.yaml
-          cp -rf ../lib/* ./lib/
           flutter pub get
           flutter build apk --release --no-tree-shake-icons
           cp build/app/outputs/flutter-apk/app-release.apk ../app-release.apk
