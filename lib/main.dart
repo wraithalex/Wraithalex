@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
@@ -91,18 +92,24 @@ class _HomeScreenState extends State<HomeScreen> {
       _errorMessage = '';
     });
 
-    final formattedDate = DateFormat('yyyy-MM-dd').format(date);
+    final formattedDate = DateFormat('yyyy-M-d').format(date);
     
-    // Пытаемся сначала сгенерировать запрос по конкретной дате, а при ошибке - без даты
-    final urlWithDate = Uri.parse('https://www.nbrb.by/api/exrates/rates?ondate=$formattedDate&periodicity=0');
-    final urlFallback = Uri.parse('https://www.nbrb.by/api/exrates/rates?periodicity=0');
+    // Используем заголовки, имитирующие мобильный браузер
+    final headers = {
+      'User-Agent': 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+      'Accept': 'application/json',
+    };
+
+    final primaryUrl = Uri.parse('https://nbrb.by/api/exrates/rates?ondate=$formattedDate&periodicity=0');
+    final secondaryUrl = Uri.parse('https://www.nbrb.by/api/exrates/rates?periodicity=0');
 
     try {
-      var response = await http.get(urlWithDate).timeout(const Duration(seconds: 10));
-      
+      // 1. Первая попытка — по выбранной дате с увеличенным таймаутом (20 секунд)
+      var response = await http.get(primaryUrl, headers: headers).timeout(const Duration(seconds: 20));
+
       if (response.statusCode != 200) {
-        // Запасной запрос к НБРБ на сегодня
-        response = await http.get(urlFallback).timeout(const Duration(seconds: 10));
+        // 2. Вторая попытка — базовый URL без даты
+        response = await http.get(secondaryUrl, headers: headers).timeout(const Duration(seconds: 20));
       }
 
       if (response.statusCode == 200) {
@@ -115,13 +122,18 @@ class _HomeScreenState extends State<HomeScreen> {
         });
       } else {
         setState(() {
-          _errorMessage = 'Сервер НБРБ вернул код: ${response.statusCode}';
+          _errorMessage = 'Сервер вернул код: ${response.statusCode}';
           _isLoading = false;
         });
       }
+    } on TimeoutException {
+      setState(() {
+        _errorMessage = 'Превышено время ожидания ответа от НБРБ. Проверьте мобильное подключение или переключитесь на Wi-Fi.';
+        _isLoading = false;
+      });
     } catch (e) {
       setState(() {
-        _errorMessage = 'Ошибка подключения: $e';
+        _errorMessage = 'Ошибка сети: $e';
         _isLoading = false;
       });
     }
@@ -157,10 +169,19 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? const Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text('Загрузка курсов НБРБ...'),
+                ],
+              ),
+            )
           : _errorMessage.isNotEmpty
               ? Padding(
-                  padding: const EdgeInsets.all(16.0),
+                  padding: const EdgeInsets.all(20.0),
                   child: Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -171,9 +192,10 @@ class _HomeScreenState extends State<HomeScreen> {
                           style: const TextStyle(color: Colors.red, fontSize: 14),
                         ),
                         const SizedBox(height: 16),
-                        ElevatedButton(
+                        ElevatedButton.icon(
                           onPressed: () => _fetchRates(_selectedDate),
-                          child: const Text('Повторить попытку'),
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Повторить попытку'),
                         )
                       ],
                     ),
@@ -538,14 +560,17 @@ class _RateDetailScreenState extends State<RateDetailScreen> {
     final endDate = DateTime.now();
     final startDate = endDate.subtract(const Duration(days: 30));
 
-    final startStr = DateFormat('yyyy-MM-dd').format(startDate);
-    final endStr = DateFormat('yyyy-MM-dd').format(endDate);
+    final startStr = DateFormat('yyyy-M-d').format(startDate);
+    final endStr = DateFormat('yyyy-M-d').format(endDate);
 
     final url = Uri.parse(
-        'https://www.nbrb.by/api/exrates/rates/dynamics/${widget.rate.id}?startDate=$startStr&endDate=$endStr');
+        'https://nbrb.by/api/exrates/rates/dynamics/${widget.rate.id}?startDate=$startStr&endDate=$endStr');
 
     try {
-      final response = await http.get(url).timeout(const Duration(seconds: 10));
+      final response = await http.get(url, headers: {
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36',
+      }).timeout(const Duration(seconds: 15));
+
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
         List<FlSpot> spots = [];
