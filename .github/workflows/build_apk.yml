@@ -33,18 +33,19 @@ jobs:
           flutter create temp_app --project-name=nbrb_rates --platforms=android --org=com.example.nbrb
           cp -f pubspec.yaml temp_app/pubspec.yaml
           cp -rf lib/* temp_app/lib/
+          
+          # Создаем директории assets во всех нужных местах
+          mkdir -p assets
           mkdir -p temp_app/assets
-          cp -rf assets/* temp_app/assets/
           
           # Конвертируем SVG в PNG 512x512
-          rsvg-convert -w 512 -h 512 temp_app/assets/icon.svg -o temp_app/assets/icon.png
-          cp temp_app/assets/icon.png assets/icon.png
+          rsvg-convert -w 512 -h 512 assets/icon.svg -o assets/icon.png
+          cp assets/icon.png temp_app/assets/icon.png
           
           if [ -d "android" ]; then cp -rf android/* temp_app/android/; fi
           
           cd temp_app
           flutter pub get
-          # Генерация иконок и сплэш-скрина из PNG
           dart run flutter_launcher_icons
           dart run flutter_native_splash:create
           
