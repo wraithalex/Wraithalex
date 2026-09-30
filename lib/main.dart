@@ -35,7 +35,6 @@ class NbrbRatesApp extends StatelessWidget {
   }
 }
 
-// Модель данных курса валюты
 class Rate {
   final int id;
   final String name;
@@ -64,7 +63,6 @@ class Rate {
   double get unitRate => officialRate / scale;
 }
 
-// Главный экран с нижним меню
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -93,11 +91,20 @@ class _HomeScreenState extends State<HomeScreen> {
       _errorMessage = '';
     });
 
-    final formattedDate = DateFormat('yyyy-M-d').format(date);
-    final url = Uri.parse('https://nbrb.by/api/exrates/rates?ondate=$formattedDate&periodicity=0');
+    final formattedDate = DateFormat('yyyy-MM-dd').format(date);
+    
+    // Пытаемся сначала сгенерировать запрос по конкретной дате, а при ошибке - без даты
+    final urlWithDate = Uri.parse('https://www.nbrb.by/api/exrates/rates?ondate=$formattedDate&periodicity=0');
+    final urlFallback = Uri.parse('https://www.nbrb.by/api/exrates/rates?periodicity=0');
 
     try {
-      final response = await http.get(url);
+      var response = await http.get(urlWithDate).timeout(const Duration(seconds: 10));
+      
+      if (response.statusCode != 200) {
+        // Запасной запрос к НБРБ на сегодня
+        response = await http.get(urlFallback).timeout(const Duration(seconds: 10));
+      }
+
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
         final rates = data.map((item) => Rate.fromJson(item)).toList();
@@ -108,13 +115,13 @@ class _HomeScreenState extends State<HomeScreen> {
         });
       } else {
         setState(() {
-          _errorMessage = 'Ошибка сервера: ${response.statusCode}';
+          _errorMessage = 'Сервер НБРБ вернул код: ${response.statusCode}';
           _isLoading = false;
         });
       }
     } catch (e) {
       setState(() {
-        _errorMessage = 'Не удалось загрузить данные. Проверьте интернет.';
+        _errorMessage = 'Ошибка подключения: $e';
         _isLoading = false;
       });
     }
@@ -152,17 +159,24 @@ class _HomeScreenState extends State<HomeScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _errorMessage.isNotEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(_errorMessage, style: const TextStyle(color: Colors.red)),
-                      const SizedBox(height: 12),
-                      ElevatedButton(
-                        onPressed: () => _fetchRates(_selectedDate),
-                        child: const Text('Повторить'),
-                      )
-                    ],
+              ? Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          _errorMessage,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: Colors.red, fontSize: 14),
+                        ),
+                        const SizedBox(height: 16),
+                        ElevatedButton(
+                          onPressed: () => _fetchRates(_selectedDate),
+                          child: const Text('Повторить попытку'),
+                        )
+                      ],
+                    ),
                   ),
                 )
               : _currentIndex == 0
@@ -198,9 +212,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-// -----------------------------------------------------------------------------
-// Вкладка 1: Список курсов с блоком Избранного
-// -----------------------------------------------------------------------------
 class RatesListTab extends StatefulWidget {
   final List<Rate> allRates;
   final List<String> favoriteCodes;
@@ -352,9 +363,6 @@ class _RatesListTabState extends State<RatesListTab> {
   }
 }
 
-// -----------------------------------------------------------------------------
-// Вкладка 2: Универсальный Мультивалютный Конвертер
-// -----------------------------------------------------------------------------
 class ConverterTab extends StatefulWidget {
   final List<Rate> allRates;
   final List<String> favoriteCodes;
@@ -507,9 +515,6 @@ class _ConverterTabState extends State<ConverterTab> {
   }
 }
 
-// -----------------------------------------------------------------------------
-// Экран детального просмотра валюты и динамики курса
-// -----------------------------------------------------------------------------
 class RateDetailScreen extends StatefulWidget {
   final Rate rate;
 
@@ -533,14 +538,14 @@ class _RateDetailScreenState extends State<RateDetailScreen> {
     final endDate = DateTime.now();
     final startDate = endDate.subtract(const Duration(days: 30));
 
-    final startStr = DateFormat('yyyy-M-d').format(startDate);
-    final endStr = DateFormat('yyyy-M-d').format(endDate);
+    final startStr = DateFormat('yyyy-MM-dd').format(startDate);
+    final endStr = DateFormat('yyyy-MM-dd').format(endDate);
 
     final url = Uri.parse(
-        'https://nbrb.by/api/exrates/rates/dynamics/${widget.rate.id}?startDate=$startStr&endDate=$endStr');
+        'https://www.nbrb.by/api/exrates/rates/dynamics/${widget.rate.id}?startDate=$startStr&endDate=$endStr');
 
     try {
-      final response = await http.get(url);
+      final response = await http.get(url).timeout(const Duration(seconds: 10));
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
         List<FlSpot> spots = [];
